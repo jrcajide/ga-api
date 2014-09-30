@@ -66,6 +66,14 @@ function ErrorHandler($type, $message, $file, $line)
 $old_error_handler = set_error_handler("ErrorHandler");
 
 
+
+
+    
+    
+   
+    
+
+
 // Los includes de la librería google-api son relativos, por lo que si no programamos
 // en la misma carpeta de la libería no funcionarían.
 // Solución: Cambiarmos la carpeta a partir de la que se hacen los includes en php con chdir()
@@ -76,7 +84,7 @@ define ('PATH_TO_KEYFILE', 'ga-api-cc58bcca6921.p12');
 define ('API_EMAIL_ADDRESS', '343781322834-52f61f9i4aaksgjhbog0cqeus5pkuntm@developer.gserviceaccount.com');
 define ('API_CLIENT_ID', '343781322834-52f61f9i4aaksgjhbog0cqeus5pkuntm.apps.googleusercontent.com');
 define ('API_APP_NAME', 'ga-api');
-define ('GA_VIEW_ID', 'ga:83321718');
+define ('GA_VIEW_ID', 'ga:83321718'); //EAM
 //chdir(PATH_TO_API);
 
 // api dependencies
@@ -111,6 +119,17 @@ $client->setClientId(API_CLIENT_ID);           // from API console
 $client->setAccessType('offline_access');  // this may be unnecessary?
 
 
+#################
+/*
+$service_man = new Google_Service_Analytics($client);
+
+$segments = $service_man->management_segments->listManagementSegments();
+$goals = $service_man->management_goals->listManagementGoals("~all", "~all", "~all");
+$props = $service_man->management_webproperties->listManagementWebproperties("~all");
+var_dump($props);
+
+unset($service_man);
+*/
 ##################
 
 
@@ -121,25 +140,71 @@ $batch = new Google_Http_Batch($client);
 $service = new Google_Service_Analytics($client);
 
 
-$metrics = 'ga:sessions,ga:pageviews,ga:bounces,ga:entranceBounceRate,ga:visitBounceRate,ga:avgTimeOnSite';
-$dimensions = 'ga:date,ga:year,ga:month,ga:day';
 
-$optParams = array('dimensions' => $dimensions, 'filters' => $filters, 'segment' => $segment, 'sort' => $sort, 'max-results' => $maxresults, 'start-index' => $startindex);
+$last_exect_date = date("Y-m-d"); //debemos comprobar la fecha de la última ejecución del script
 
-$from = date('Y-m-d', time()-2*24*60*60); // 2 days
-$to = date('Y-m-d'); // today
+$prev_date = date('Y-m-d', strtotime($last_exect_date .' -1 day'));
 
-$req1  = $service->data_ga->get(GA_VIEW_ID, $from, $to, $metrics, $optParams);
+$timestamp = strtotime($prev_date);
 
 
-//$req1 = $service->data_ga->get(GA_VIEW_ID, '2014-08-01', '2014-08-01', $params);
-$batch->add($req1, "sessions");
-$req2 = $service->data_ga->get(GA_VIEW_ID, '2014-08-01', '2014-08-01', 'ga:users');
+//$metrics = 'ga:sessions,ga:bounceRate,ga:percentNewVisits,ga:avgTimeOnSite,ga:pageViews,ga:users';
+//$dimensions = 'ga:date,ga:year,ga:month,ga:day,ga:isoYearIsoWeek';
+//$dimensions = 'ga:date,ga:isoYearIsoWeek,ga:sourceMedium';
+//$segment = 'gaid::-4';
+
+//$optParams = array('dimensions' => $dimensions, 'filters' => $filters, 'segment' => $segment, 'sort' => $sort, 'max-results' => $maxresults, 'start-index' => $startindex);
+
+
+
+//$req1  = $service->data_ga->get(GA_VIEW_ID, $prev_date, $prev_date, $metrics, $optParams);
+
+
+
+//$batch->add($req1, "sessions");
+
+
+$db = new SQLite3('ga-queries.db') or die('Unable to open database'); 
+
+function gaReq ($from, $to) {
+
+	global $service, $batch, $db;
+	
+	
+	if (!$to) {$to = $from;}
+	
+
+	   
+	$result = $db->query('SELECT * FROM queries') or die('Query failed');
+	while ($row = $result->fetchArray()) {
+
+	  $optParams = array('dimensions' => $row['dimensions'], 'filters' => $row['filters'], 'segment' => $row['segment'], 'sort' => $row['sort'], 'max-results' => $row['maxresults'], 'start-index' => $row['startindex']);
+		  
+		$req  = $service->data_ga->get(GA_VIEW_ID, $from, $to, $row['metrics'], $optParams);
+		 $batch->add($req, $row['name']);
+	} 
+	
+	
+
+	return $batch;
+
+
+}
+
+gaReq ($prev_date, NULL);
+
+
+
+
+/*
+$req2 = $service->data_ga->get(GA_VIEW_ID, $prev_date, $prev_date, 'ga:users');
 $batch->add($req2, "users");
-
+*/
 
 
 $results = $batch->execute();
+
+ $db->close();
 
 header('Content-Type: application/json');
 echo json_encode($results, true);
